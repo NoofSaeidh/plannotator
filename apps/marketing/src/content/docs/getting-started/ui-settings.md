@@ -52,6 +52,19 @@ Controls which agent to switch to after plan approval or after sending code revi
 
 Until you pick an option, the default differs by surface: plan approval hands off to the **build** agent, and review feedback stays on the current agent. Once you pick an option it applies to both.
 
+### Open editors at project root
+
+Controls what the **Open in** button hands to an editor.
+
+| Option | Behavior |
+|--------|----------|
+| **Off** (default) | Opens the file on its own — `code <file>` |
+| **On** | Opens the project folder with the file — `code <root> <file>` |
+
+Turn it on when a lone file window is not much use: the editor opens the folder as its workspace and the file inside it, so project search, the file tree and language tooling all work. The folder is chosen by Plannotator — the repository root in code review, the reference root a document was served from in annotate — never by the browser. It applies to editors only; Explorer/Finder still reveals the file and a terminal still opens its parent directory.
+
+Stored as `openInEditorFolder` in `~/.plannotator/config.json`.
+
 ### Auto-close tab
 
 Controls whether the browser tab closes automatically after you approve or deny a plan.

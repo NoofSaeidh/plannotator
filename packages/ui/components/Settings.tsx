@@ -963,6 +963,7 @@ export const Settings: React.FC<SettingsProps> = ({ taterMode, onTaterModeChange
   const vimHudEnabled = useConfigValue('vimHudEnabled');
   const vimHudKeyPanelEnabled = useConfigValue('vimHudKeyPanelEnabled');
   const agentTerminalSide = useConfigValue('agentTerminalSide');
+  const openInEditorFolder = useConfigValue('openInEditorFolder');
   const [identity, setIdentity] = useState('');
   const [obsidian, setObsidian] = useState<ObsidianSettings>({
     enabled: false,
@@ -1542,6 +1543,18 @@ export const Settings: React.FC<SettingsProps> = ({ taterMode, onTaterModeChange
                         </div>
                       </>
                     )}
+
+                    <div className="border-t border-border" />
+
+                    {/* Open in editor: folder + file, or the file alone.
+                        Which folder is the server's call (review's VCS root,
+                        annotate's reference roots), so this is a plain on/off. */}
+                    <ToggleSwitch
+                      checked={openInEditorFolder}
+                      onChange={(v) => configStore.set('openInEditorFolder', v)}
+                      label="Open Editors at Project Root"
+                      description="Pass the project folder to the editor with the file, so it opens in the workspace instead of a lone file window"
+                    />
 
                     <div className="border-t border-border" />
 
