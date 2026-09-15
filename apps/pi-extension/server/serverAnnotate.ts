@@ -17,7 +17,7 @@ import { contentHash, deleteDraft } from "../generated/draft.ts";
 import { getPlanVersion, getVersionCount, listVersions } from "../generated/storage.ts";
 import { computeAnnotateHistory, deriveAnnotateHistorySlug, persistAnnotateSubmission, type AnnotateHistoryResult } from "../generated/annotate-history.ts";
 import { htmlDiff } from "../generated/html-diff.ts";
-import { saveConfig, detectGitUser, getServerConfig, isAgentTerminalSide, loadConfig, resolveAIEnabled, resolveSharingEnabled, resolveAnnotateHistory, resolveFeedbackHistory, type PromptRuntime } from "../generated/config.ts";
+import { saveConfig, detectGitUser, getServerConfig, isAgentTerminalSide, loadConfig, resolveAIEnabled, resolveOpenInEditorFolder, resolveSharingEnabled, resolveAnnotateHistory, resolveFeedbackHistory, type PromptRuntime } from "../generated/config.ts";
 import { appendFeedbackRecord, type FeedbackDecision, type FeedbackSurface } from "../generated/feedback-archive.ts";
 import { isFaviconStyle, type FaviconStyle } from "../generated/favicon.ts";
 import { getAnnotateFileFeedbackTemplate, getAnnotateMessageFeedbackTemplate } from "../generated/prompts.ts";
@@ -71,7 +71,7 @@ import {
 	normalizeHtmlAssetRoutePath,
 	rewriteHtmlAssetReferences,
 } from "../generated/html-assets.ts";
-import { inlineHtmlLocalAssets, isWithinDirectory, MAX_HTML_ASSET_BYTES, resolveOpenInTarget } from "../generated/html-assets-node.ts";
+import { inlineHtmlLocalAssets, isWithinDirectory, MAX_HTML_ASSET_BYTES, resolveOpenInTargetWithRoot } from "../generated/html-assets-node.ts";
 import {
 	supportsAnnotateAgentTerminalMode,
 	type AgentTerminalCapability,
@@ -901,7 +901,7 @@ export async function startAnnotateServer(options: {
 			handleShareHtml(res, url);
 		} else if (url.pathname === "/api/config" && req.method === "POST") {
 			try {
-				const body = (await parseBody(req)) as { displayName?: string; diffOptions?: Record<string, unknown>; theme?: Record<string, unknown>; favicon?: FaviconStyle; conventionalComments?: boolean; agentTerminalSide?: unknown; agentTerminalDefaultAgent?: unknown };
+				const body = (await parseBody(req)) as { displayName?: string; diffOptions?: Record<string, unknown>; theme?: Record<string, unknown>; favicon?: FaviconStyle; conventionalComments?: boolean; agentTerminalSide?: unknown; agentTerminalDefaultAgent?: unknown; openInEditorFolder?: unknown };
 				const toSave: Record<string, unknown> = {};
 				if (body.displayName !== undefined) toSave.displayName = body.displayName;
 				if (body.diffOptions !== undefined) toSave.diffOptions = body.diffOptions;
@@ -910,6 +910,7 @@ export async function startAnnotateServer(options: {
 				if (body.conventionalComments !== undefined) toSave.conventionalComments = body.conventionalComments;
 				if (isAgentTerminalSide(body.agentTerminalSide)) toSave.agentTerminalSide = body.agentTerminalSide;
 				if (typeof body.agentTerminalDefaultAgent === "string") toSave.agentTerminalDefaultAgent = body.agentTerminalDefaultAgent;
+				if (typeof body.openInEditorFolder === "boolean") toSave.openInEditorFolder = body.openInEditorFolder;
 				if (Object.keys(toSave).length > 0) saveConfig(toSave as Parameters<typeof saveConfig>[0]);
 				json(res, { ok: true });
 			} catch {
@@ -946,12 +947,14 @@ export async function startAnnotateServer(options: {
 				const appId = typeof body.appId === "string" ? body.appId : undefined;
 				// Confine opens to the same reference roots /api/doc serves from,
 				// so any linked doc the user can view can also be opened.
-				const abs = resolveOpenInTarget(filePath, null, getReferenceRootPaths);
-				if (abs == null) {
+				const target = resolveOpenInTargetWithRoot(filePath, null, getReferenceRootPaths);
+				if (target == null) {
 					json(res, { ok: false, error: "Path is outside the allowed directory" }, 403);
 					return;
 				}
-				const result = await openFileInApp(abs, appId);
+				const result = await openFileInApp(target.abs, appId, {
+					folder: resolveOpenInEditorFolder(target),
+				});
 				json(res, result, 200);
 			} catch (err) {
 				json(

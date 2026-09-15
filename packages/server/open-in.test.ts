@@ -10,7 +10,11 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
-import { resolveOpenInTarget } from "@plannotator/shared/html-assets-node";
+import {
+  resolveOpenInTarget,
+  resolveOpenInTargetWithRoot,
+} from "@plannotator/shared/html-assets-node";
+import { resolveOpenInEditorFolder } from "@plannotator/shared/config";
 import { openFileInApp } from "./open-in";
 
 // resolveOpenInTarget is the security boundary for POST /api/open-in: it decides
@@ -251,6 +255,80 @@ describe("openFileInApp launch semantics", () => {
             /* already gone */
           }
         }
+      }
+    },
+    15000,
+  );
+});
+
+// Folder mode (config.json `openInEditorFolder`): the root the containment
+// check already accepted is what an editor opens as its workspace. The policy
+// is shared with Pi, so it is tested against the resolver's own output rather
+// than a hand-built root.
+describe("resolveOpenInEditorFolder — folder-mode policy", () => {
+  test("off by default: no folder, so the editor opens the file alone", () => {
+    const root = makeDir();
+    writeFileSync(join(root, "a.ts"), "x");
+    const target = resolveOpenInTargetWithRoot("a.ts", null, () => root)!;
+    expect(resolveOpenInEditorFolder(target, {})).toBeUndefined();
+    expect(resolveOpenInEditorFolder(target, { openInEditorFolder: false })).toBeUndefined();
+  });
+
+  test("on: the server-supplied root becomes the folder", () => {
+    const root = makeDir();
+    writeFileSync(join(root, "a.ts"), "x");
+    const target = resolveOpenInTargetWithRoot("a.ts", null, () => root)!;
+    expect(resolveOpenInEditorFolder(target, { openInEditorFolder: true })).toBe(root);
+  });
+
+  test("on, multi-root: the folder is the root that accepted the file", () => {
+    const a = makeDir();
+    const b = makeDir();
+    writeFileSync(join(b, "doc.md"), "x");
+    // Absolute, as annotate's linked-doc opens are: containment then picks the
+    // root that really holds the file, not roots[0]. (A bare relative name
+    // resolves inside the first root lexically — containment is not existence —
+    // so the folder follows `abs` there too; both stay consistent.)
+    const target = resolveOpenInTargetWithRoot(join(b, "doc.md"), null, () => [a, b])!;
+    expect(resolveOpenInEditorFolder(target, { openInEditorFolder: true })).toBe(b);
+  });
+
+  test("on, but no server root: the client base never becomes the folder", () => {
+    const root = makeDir();
+    writeFileSync(join(root, "a.ts"), "x");
+    // The plan server supplies no resolveRoot, so the root here is inferred
+    // from the request. Opening it would let the client pick the directory.
+    const target = resolveOpenInTargetWithRoot("a.ts", root, undefined)!;
+    expect(target.serverSupplied).toBe(false);
+    expect(resolveOpenInEditorFolder(target, { openInEditorFolder: true })).toBeUndefined();
+  });
+
+  launchTest(
+    "folder mode puts the project root in the argv ahead of the file",
+    async () => {
+      // The one assertion that the folder actually reaches the editor. The
+      // shim records its argv; expectations are per-platform because mac
+      // launches through `open -a <bundle>`.
+      const shimDir = makeDir();
+      const argvFile = join(shimDir, "argv.txt");
+      writeShim(shimDir, `#!/bin/sh\nprintf '%s\\n' "$@" > "${argvFile}"\n`);
+      const root = makeDir();
+      const target = join(root, "file.txt");
+      writeFileSync(target, "x");
+
+      const oldPath = process.env.PATH;
+      process.env.PATH = `${shimDir}${delimiter}${oldPath ?? ""}`;
+      try {
+        const result = await openFileInApp(target, "vscode", { folder: root });
+        expect(result.ok).toBe(true);
+        const argv = readFileSync(argvFile, "utf-8").trim().split("\n");
+        expect(argv).toEqual(
+          process.platform === "darwin"
+            ? ["-a", "Visual Studio Code", root, target]
+            : [root, target],
+        );
+      } finally {
+        process.env.PATH = oldPath;
       }
     },
     15000,

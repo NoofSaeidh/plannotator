@@ -15,6 +15,7 @@ import os from "node:os";
 
 import {
 	OPEN_IN_APPS,
+	buildEditorLaunch,
 	getOpenInApp,
 	resolveRevealIcon,
 	resolveRevealLabel,
@@ -235,10 +236,15 @@ function spawnDetached(
 /**
  * Launch `absPath` in the app identified by `appId` (defaults / unknown ->
  * the OS default handler). Mirrors the Bun-side launch semantics exactly.
+ *
+ * `opts.folder` is the project root an editor opens as its workspace beside
+ * the file (the `openInEditorFolder` setting). Editor-kind apps only: a file
+ * manager reveals the file and a terminal already opens the parent directory.
  */
 export function openFileInApp(
 	absPath: string,
 	appId?: string,
+	opts?: { folder?: string },
 ): Promise<{ ok: true } | { ok: false; error: string }> {
 	const platform = currentPlatform();
 	const app = appId ? getOpenInApp(appId) : undefined;
@@ -281,18 +287,11 @@ export function openFileInApp(
 		return run(app.linux.bin, [dir], app.label);
 	}
 
-	// editor -> open the file itself.
-	if (platform === "mac") {
-		if (!app.mac?.appName)
-			return Promise.resolve({ ok: false, error: `${app.label} is not available on this platform.` });
-		return run("open", ["-a", app.mac.appName, absPath], app.label);
-	}
-	if (platform === "win") {
-		if (!app.win?.bin)
-			return Promise.resolve({ ok: false, error: `${app.label} is not available on this platform.` });
-		return run(app.win.bin, [absPath], app.label);
-	}
-	if (!app.linux?.bin)
+	// editor -> open the file itself, or the project folder plus the file when
+	// the caller resolved a root. Argv comes from the shared catalog builder,
+	// so Pi and the Bun server cannot drift on it.
+	const launch = buildEditorLaunch(app, platform, absPath, opts?.folder);
+	if (!launch)
 		return Promise.resolve({ ok: false, error: `${app.label} is not available on this platform.` });
-	return run(app.linux.bin, [absPath], app.label);
+	return run(launch.cmd, launch.args, app.label);
 }

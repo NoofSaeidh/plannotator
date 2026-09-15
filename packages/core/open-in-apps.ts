@@ -14,7 +14,8 @@
  * `kind` drives launch semantics:
  *   - file-manager -> reveal the file (mac: `open -R`, win: `explorer /select,`,
  *     linux: open the parent dir)
- *   - editor       -> open the file itself
+ *   - editor       -> open the file itself, or the project folder plus the file
+ *     when the `openInEditorFolder` setting is on (see buildEditorLaunch)
  *   - terminal     -> open the file's parent directory
  *
  * One special id has no platform launch fields:
@@ -196,4 +197,41 @@ export function resolveRevealIcon(platform: OpenInPlatform): string {
  */
 export function getOpenInApp(id: string): OpenInApp | undefined {
   return OPEN_IN_APPS.find((app) => app.id === id);
+}
+
+/** A launch to hand to a process spawner: the command plus its full argv. */
+export interface OpenInLaunch {
+  cmd: string;
+  args: string[];
+}
+
+/**
+ * Build the argv for opening a file in an `editor`-kind app.
+ *
+ * `folder` is the project root the file belongs to. Passing it is what the
+ * `openInEditorFolder` setting buys: the editor opens the folder as its
+ * workspace and the file inside it, instead of a lone file window with no
+ * project context. Every catalog editor accepts `<folder> <file>`, so there
+ * is one code path and no per-app special case.
+ *
+ * Returns `null` when the entry declares no launch field for `platform` — the
+ * caller turns that into the "not available on <platform>" error rather than
+ * guessing a binary name.
+ */
+export function buildEditorLaunch(
+  app: OpenInApp,
+  platform: OpenInPlatform,
+  absPath: string,
+  folder?: string,
+): OpenInLaunch | null {
+  // An empty root is "no root": it must never reach the argv as a bare "".
+  const targets = folder ? [folder, absPath] : [absPath];
+
+  if (platform === 'mac') {
+    const appName = app.mac?.appName;
+    return appName ? { cmd: 'open', args: ['-a', appName, ...targets] } : null;
+  }
+
+  const bin = platform === 'win' ? app.win?.bin : app.linux?.bin;
+  return bin ? { cmd: bin, args: targets } : null;
 }

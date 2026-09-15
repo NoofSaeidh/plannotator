@@ -23,6 +23,7 @@ import os from "node:os";
 import { spawn } from "node:child_process";
 import {
   OPEN_IN_APPS,
+  buildEditorLaunch,
   getOpenInApp,
   resolveRevealLabel,
   resolveRevealIcon,
@@ -30,7 +31,8 @@ import {
   type OpenInKind,
   type OpenInPlatform,
 } from "@plannotator/shared/open-in-apps";
-import { resolveOpenInTarget } from "@plannotator/shared/html-assets-node";
+import { resolveOpenInTargetWithRoot } from "@plannotator/shared/html-assets-node";
+import { resolveOpenInEditorFolder } from "@plannotator/shared/config";
 import { isRemoteSession } from "./remote";
 
 export type OpenInLaunchResult = { ok: true } | { ok: false; error: string };
@@ -213,17 +215,36 @@ function revealFile(absPath: string): Promise<OpenInLaunchResult> {
   return runArgv("xdg-open", [path.dirname(absPath)], "file manager");
 }
 
+/** Platform name as it reads in a user-facing "not available" error. */
+function platformLabel(platform: OpenInPlatform): string {
+  return platform === "mac" ? "macOS" : platform === "win" ? "Windows" : "Linux";
+}
+
 /**
  * Launch an editor/terminal app from the catalog.
- *   - editor   -> open the file itself
+ *   - editor   -> open the file itself, preceded by `folder` when the caller
+ *                 resolved a project root and openInEditorFolder is on
  *   - terminal -> open the file's parent directory
  */
 function openWithApp(
   app: OpenInApp,
   absPath: string,
+  folder?: string,
 ): Promise<OpenInLaunchResult> {
   const platform = currentPlatform();
-  const target = app.kind === "terminal" ? path.dirname(absPath) : absPath;
+
+  if (app.kind === "editor") {
+    const launch = buildEditorLaunch(app, platform, absPath, folder);
+    if (!launch) {
+      return Promise.resolve({
+        ok: false,
+        error: `${app.label} is not available on ${platformLabel(platform)}`,
+      });
+    }
+    return runArgv(launch.cmd, launch.args, app.label);
+  }
+
+  const target = path.dirname(absPath);
 
   if (platform === "mac") {
     const appName = app.mac?.appName;
@@ -244,13 +265,10 @@ function openWithApp(
         error: `${app.label} is not available on Windows`,
       });
     }
-    if (app.kind === "terminal") {
-      // Open a new console window for the terminal. The directory is passed via
-      // cwd (NOT a cmd argument) so a repo-controlled path never reaches cmd's
-      // parser; `start` inherits that cwd. bin is a trusted catalog value.
-      return runArgv("cmd", ["/c", "start", "", bin], app.label, { cwd: target });
-    }
-    return runArgv(bin, [target], app.label);
+    // Open a new console window for the terminal. The directory is passed via
+    // cwd (NOT a cmd argument) so a repo-controlled path never reaches cmd's
+    // parser; `start` inherits that cwd. bin is a trusted catalog value.
+    return runArgv("cmd", ["/c", "start", "", bin], app.label, { cwd: target });
   }
 
   const bin = app.linux?.bin;
@@ -266,10 +284,15 @@ function openWithApp(
 /**
  * Open a file in the given app (by catalog id). An unknown or undefined id
  * falls back to the OS default handler.
+ *
+ * `opts.folder` is the project root to open alongside the file. It reaches the
+ * argv only for `editor`-kind apps: a file manager reveals the file and a
+ * terminal already opens the parent directory, so neither has a use for it.
  */
 export async function openFileInApp(
   absPath: string,
   appId?: string,
+  opts?: { folder?: string },
 ): Promise<OpenInLaunchResult> {
   if (!appId) {
     return openSystemDefault(absPath);
@@ -285,7 +308,7 @@ export async function openFileInApp(
     return revealFile(absPath);
   }
 
-  return openWithApp(app, absPath);
+  return openWithApp(app, absPath, opts?.folder);
 }
 
 /**
@@ -426,12 +449,14 @@ export async function handleOpenIn(
   const base = typeof body.base === "string" ? body.base : null;
   const appId = typeof body.appId === "string" ? body.appId : undefined;
 
-  const abs = resolveOpenInTarget(filePath, base, options.resolveRoot);
-  if (abs == null) {
+  const target = resolveOpenInTargetWithRoot(filePath, base, options.resolveRoot);
+  if (target == null) {
     return Response.json({ ok: false, error: "Access denied" }, { status: 403 });
   }
 
-  const result = await openFileInApp(abs, appId);
+  const result = await openFileInApp(target.abs, appId, {
+    folder: resolveOpenInEditorFolder(target),
+  });
   // A failed launch is a valid request with the result in the body (ok:false),
   // not a server error — return 200 and let the client read `ok`. Matches Pi.
   return Response.json(result);

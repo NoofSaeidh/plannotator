@@ -174,4 +174,34 @@ describe("openFileInApp launch semantics (Pi mirror)", () => {
 		},
 		15000,
 	);
+
+	launchTest(
+		"folder mode puts the project root in the argv ahead of the file",
+		async () => {
+			// Pi builds editor argv with the shared catalog builder, same as the
+			// Bun runtime; this pins that the handler's folder actually reaches it.
+			const shimDir = makeDir();
+			const argvFile = join(shimDir, "argv.txt");
+			writeShim(shimDir, `#!/bin/sh\nprintf '%s\\n' "$@" > "${argvFile}"\n`);
+			const root = makeDir();
+			const target = join(root, "file.txt");
+			writeFileSync(target, "x");
+
+			const oldPath = process.env.PATH;
+			process.env.PATH = `${shimDir}${delimiter}${oldPath ?? ""}`;
+			try {
+				const result = await openFileInApp(target, "vscode", { folder: root });
+				expect(result.ok).toBe(true);
+				const argv = readFileSync(argvFile, "utf-8").trim().split("\n");
+				expect(argv).toEqual(
+					process.platform === "darwin"
+						? ["-a", "Visual Studio Code", root, target]
+						: [root, target],
+				);
+			} finally {
+				process.env.PATH = oldPath;
+			}
+		},
+		15000,
+	);
 });

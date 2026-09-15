@@ -6,7 +6,7 @@ import { basename, resolve as resolvePath } from "node:path";
 
 import { SingleFlight } from "../generated/single-flight.ts";
 import { contentHash, deleteDraft } from "../generated/draft.ts";
-import { loadConfig, saveConfig, detectGitUser, getServerConfig, parseReviewAnalysisConfig, resolveAIEnabled, resolveSharingEnabled, resolveCursorSandbox, resolveFeedbackHistory, resolveGuideHistory, resolveGuideShareUrl } from "../generated/config.ts";
+import { loadConfig, saveConfig, detectGitUser, getServerConfig, parseReviewAnalysisConfig, resolveAIEnabled, resolveOpenInEditorFolder, resolveSharingEnabled, resolveCursorSandbox, resolveFeedbackHistory, resolveGuideHistory, resolveGuideShareUrl } from "../generated/config.ts";
 import { appendFeedbackRecord, countChangedFiles, deriveFeedbackProject, type FeedbackDecision, type FeedbackReviewTarget } from "../generated/feedback-archive.ts";
 import { isFaviconStyle, type FaviconStyle } from "../generated/favicon.ts";
 
@@ -96,7 +96,7 @@ import { createPiAIRuntime, handlePiAIRequest } from "./ai-runtime.ts";
 
 import { buildAdvertisedUrl, isRemoteSession, listenOnPort } from "./network.ts";
 import { getAvailableOpenInApps, openFileInApp } from "./open-in-apps.ts";
-import { resolveOpenInTarget } from "../generated/html-assets-node.ts";
+import { resolveOpenInTargetWithRoot } from "../generated/html-assets-node.ts";
 import {
 	fetchPR,
 	fetchPRContext,
@@ -3210,7 +3210,7 @@ export async function startReviewServer(options: {
 			}
 		} else if (url.pathname === "/api/config" && req.method === "POST") {
 			try {
-				const body = (await parseBody(req)) as { displayName?: string; diffOptions?: Record<string, unknown>; theme?: Record<string, unknown>; favicon?: FaviconStyle; reviewAnalysis?: Record<string, unknown>; conventionalComments?: boolean };
+				const body = (await parseBody(req)) as { displayName?: string; diffOptions?: Record<string, unknown>; theme?: Record<string, unknown>; favicon?: FaviconStyle; reviewAnalysis?: Record<string, unknown>; conventionalComments?: boolean; openInEditorFolder?: unknown };
 				const toSave: Record<string, unknown> = {};
 				if (body.displayName !== undefined) toSave.displayName = body.displayName;
 				if (body.diffOptions !== undefined) toSave.diffOptions = body.diffOptions;
@@ -3223,6 +3223,7 @@ export async function startReviewServer(options: {
 					if (reviewAnalysis.callFlow === false) callFlowService.cancelAll();
 				}
 				if (body.conventionalComments !== undefined) toSave.conventionalComments = body.conventionalComments;
+				if (typeof body.openInEditorFolder === "boolean") toSave.openInEditorFolder = body.openInEditorFolder;
 				if (Object.keys(toSave).length > 0) saveConfig(toSave as Parameters<typeof saveConfig>[0]);
 				json(res, { ok: true });
 			} catch {
@@ -3391,12 +3392,14 @@ export async function startReviewServer(options: {
 				// local checkout, resolveVcsCwd(gitContext.cwd), and process.cwd())
 				// — not the client `base`, which is wrong when review runs from a
 				// subdirectory — then containment-check.
-				const abs = resolveOpenInTarget(filePath, null, resolveOpenInRoot);
-				if (abs == null) {
+				const target = resolveOpenInTargetWithRoot(filePath, null, resolveOpenInRoot);
+				if (target == null) {
 					json(res, { ok: false, error: "Path is outside the allowed directory" }, 403);
 					return;
 				}
-				const result = await openFileInApp(abs, appId);
+				const result = await openFileInApp(target.abs, appId, {
+					folder: resolveOpenInEditorFolder(target),
+				});
 				json(res, result, 200);
 			} catch (err) {
 				json(
