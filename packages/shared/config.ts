@@ -216,6 +216,14 @@ export interface PlannotatorConfig {
    */
   pfmReminder?: boolean;
   /**
+   * Pass the project folder to the editor alongside the file when using the
+   * "Open in" button, so the editor opens the folder as its workspace instead
+   * of a lone file window (`code <root> <file>`). Applies to `editor`-kind
+   * apps only, and only where the server vouches for the root — review's VCS
+   * root and annotate's reference roots. Default: false (open the file alone).
+   */
+  openInEditorFolder?: boolean;
+  /**
    * Open Plannotator in a Glimpse native window when available.
    * When true (default), the server spawns `glimpseui` if it is on PATH,
    * no explicit browser is configured, and the session is local.
@@ -553,6 +561,7 @@ export function getServerConfig(gitUser: string | null): {
   conventionalLabels?: CCLabelConfig[] | null;
   agentTerminalSide?: PlannotatorConfig["agentTerminalSide"];
   agentTerminalDefaultAgent?: string;
+  openInEditorFolder?: boolean;
 } {
   const cfg = loadConfig();
   return {
@@ -575,6 +584,9 @@ export function getServerConfig(gitUser: string | null): {
       cfg.agentTerminalDefaultAgent !== "" && {
         agentTerminalDefaultAgent: cfg.agentTerminalDefaultAgent,
       }),
+    ...(typeof cfg.openInEditorFolder === "boolean" && {
+      openInEditorFolder: cfg.openInEditorFolder,
+    }),
   };
 }
 
@@ -622,6 +634,28 @@ function coerceConfigBoolean(value: unknown, fallback: boolean): boolean {
     if (v === "false" || v === "0") return false;
   }
   return fallback;
+}
+
+/**
+ * Resolve the project folder an `editor`-kind "Open in" launch should pass
+ * alongside the file, or undefined to open the file alone (the default).
+ *
+ * Two conditions, both required:
+ *   - `openInEditorFolder` is on in config.json;
+ *   - the root came from the SERVER (`serverSupplied`), i.e. review's VCS root
+ *     or annotate's reference roots. A root merely inferred from the request —
+ *     the client `base`, the file's own directory, cwd — is not a project
+ *     folder, and handing the client's `base` to an editor would let the
+ *     request choose which directory gets opened.
+ *
+ * Shared by the Bun and Pi open-in handlers so the policy has one definition.
+ */
+export function resolveOpenInEditorFolder(
+  target: { root: string; serverSupplied: boolean },
+  config: PlannotatorConfig = loadConfig(),
+): string | undefined {
+  if (!target.serverSupplied) return undefined;
+  return config.openInEditorFolder === true ? target.root : undefined;
 }
 
 /**

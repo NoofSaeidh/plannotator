@@ -96,13 +96,47 @@ export function isWithinDirectory(filePath: string, root: string): boolean {
  * directory; then cwd. Each root resolves `filePath` independently, so a
  * relative path is resolved correctly per-root (not only against the first).
  * Returns the absolute path, or null when it escapes every allowed root.
+ *
+ * Use resolveOpenInTargetWithRoot when the caller also needs the root that
+ * accepted the file (folder-mode editor launches).
  */
 export function resolveOpenInTarget(
   filePath: string,
   base: string | null,
   resolveRoot?: () => string | string[],
 ): string | null {
+  return resolveOpenInTargetWithRoot(filePath, base, resolveRoot)?.abs ?? null;
+}
+
+/** An accepted open-in target: the file, and the allowed root that contains it. */
+export interface OpenInTarget {
+  abs: string;
+  /**
+   * The root `abs` was resolved against and found to be inside.
+   *
+   * `serverSupplied` distinguishes a root the SERVER vouched for (review's VCS
+   * root, annotate's reference roots) from one merely inferred from the request
+   * (the client `base`, the file's own directory, cwd). Only a server-supplied
+   * root is a project folder, so only that one may be handed to an editor.
+   */
+  root: string;
+  serverSupplied: boolean;
+}
+
+/**
+ * resolveOpenInTarget, plus the root that accepted the file.
+ *
+ * Same resolution, same containment check, same precedence — this is the
+ * full-fidelity version and resolveOpenInTarget is a wrapper over it, so the
+ * security boundary has exactly one implementation.
+ */
+export function resolveOpenInTargetWithRoot(
+  filePath: string,
+  base: string | null,
+  resolveRoot?: () => string | string[],
+): OpenInTarget | null {
   const provided = resolveRoot?.();
+  const serverSupplied = provided != null;
   const roots = (
     provided == null
       ? [
@@ -124,7 +158,7 @@ export function resolveOpenInTarget(
   // duplicate-basename trap of resolving only against roots[0].
   for (const root of roots) {
     const abs = resolvePath(root, filePath);
-    if (isWithinDirectory(abs, root)) return abs;
+    if (isWithinDirectory(abs, root)) return { abs, root, serverSupplied };
   }
   return null;
 }

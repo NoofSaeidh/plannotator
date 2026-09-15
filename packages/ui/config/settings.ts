@@ -654,6 +654,28 @@ export const SETTINGS = {
         : undefined,
     toServer: (v: string) => ({ agentTerminalDefaultAgent: v }),
   },
+
+  /**
+   * "Open in" editor launches pass the project folder alongside the file, so
+   * the editor opens the folder as its workspace instead of a lone file
+   * window (`code <root> <file>`). Off by default: the launch stays exactly
+   * what it has always been until the user asks for the folder.
+   *
+   * The server decides WHICH folder — review's VCS root, annotate's reference
+   * roots — so this is a plain on/off with no path to validate here.
+   */
+  openInEditorFolder: {
+    defaultValue: false as boolean,
+    fromCookie: () => {
+      const v = storage.getItem('plannotator-open-in-editor-folder');
+      return v === 'true' ? true : v === 'false' ? false : undefined;
+    },
+    toCookie: (v: boolean) => storage.setItem('plannotator-open-in-editor-folder', String(v)),
+    serverKey: 'openInEditorFolder',
+    fromServer: (sc: Record<string, unknown>) =>
+      typeof sc.openInEditorFolder === 'boolean' ? sc.openInEditorFolder : undefined,
+    toServer: (v: boolean) => ({ openInEditorFolder: v }),
+  },
   /* SettingDef<any>, not <unknown>: consumers compile this shipped source under
      their own strictFunctionTypes, where a narrow `toCookie: (v: string) => void`
      is contravariantly incompatible with `(value: unknown) => void`. */
